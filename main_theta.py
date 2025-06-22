@@ -35,11 +35,107 @@ import numpy as np
 from scipy.stats import norm, gumbel_r
 from sklearn.decomposition import PCA
 
+
+def visualize_optimization_process(history, unique_id, theta_true=None):
+    """
+    统一的优化过程可视化函数
+    Args:
+        history: 包含优化历史数据的字典，包括:
+            losses: 损失函数值列表
+            lambda_vals: 拉格朗日乘子值列表
+            theta_history: 参数历史列表
+        unique_id: 唯一标识符用于文件名
+        theta_true: 真实参数值(可选)
+    """
+    # 确保visualization目录存在
+    os.makedirs("visualization", exist_ok=True)
+    
+    # 从历史数据中提取信息
+    losses = history['losses']
+    lambda_vals = history['lambda_vals']
+    theta_history = np.array(history['theta_history'])
+    
+    # 创建图表
+    plt.figure(figsize=(18, 12))
+    plt.suptitle(f"Optimization Process (ID: {unique_id})", fontsize=16)
+    
+    # 1. 损失函数变化
+    plt.subplot(2, 2, 1)
+    plt.plot(losses, 'b-', linewidth=2)
+    plt.xlabel('Epoch')
+    plt.ylabel('Loss')
+    plt.title('Objective Function Value')
+    plt.grid(True)
+    
+    # 2. 拉格朗日乘子变化
+    plt.subplot(2, 2, 2)
+    plt.plot(lambda_vals, 'g-', linewidth=2)
+    plt.xlabel('Epoch')
+    plt.ylabel('Lambda')
+    plt.title('Lagrange Multiplier Evolution')
+    plt.grid(True)
+    
+    # 3. 参数分量变化
+    plt.subplot(2, 2, 3)
+    for i in range(min(4, theta_history.shape[1])):  # 最多显示4个参数分量
+        plt.plot(theta_history[:, i], label=f'$\\theta_{i}$')
+        if theta_true is not None and i < len(theta_true):
+            plt.axhline(y=theta_true[i], color=f'C{i}', linestyle='--', 
+                        label=f'True $\\theta_{i}$')
+    plt.xlabel('Epoch')
+    plt.ylabel('Parameter Value')
+    plt.title('Parameter Values')
+    plt.legend()
+    plt.grid(True)
+    
+    # 4. 参数空间轨迹(前两个维度)
+    plt.subplot(2, 2, 4)
+    if theta_history.shape[1] >= 2:
+        # 绘制单位圆
+        angles = np.linspace(0, 2*np.pi, 100)
+        plt.plot(np.cos(angles), np.sin(angles), 'k--', alpha=0.3)
+        
+        # 绘制轨迹
+        plt.plot(theta_history[:, 0], theta_history[:, 1], 'b-')
+        plt.scatter(theta_history[0, 0], theta_history[0, 1], c='green', 
+                  s=100, marker='o', label='Start')
+        plt.scatter(theta_history[-1, 0], theta_history[-1, 1], c='red', 
+                  s=100, marker='x', label='End')
+        if theta_true is not None and len(theta_true) >= 2:
+            plt.scatter(theta_true[0], theta_true[1], c='black', 
+                      s=150, marker='*', label='Optimum')
+        plt.xlabel('$\\theta_0$')
+        plt.ylabel('$\\theta_1$')
+        plt.title('Parameter Space Trajectory (First 2 Dimensions)')
+        plt.axis('equal')
+        plt.legend()
+        plt.grid(True)
+    else:
+        plt.text(0.5, 0.5, 'Not enough dimensions for trajectory plot', 
+                ha='center', va='center', fontsize=12)
+        plt.axis('off')
+    
+    # 调整布局防止重叠
+    plt.subplots_adjust(
+        left=0.1, 
+        right=0.95, 
+        bottom=0.1, 
+        top=0.9, 
+        wspace=0.3,  # 水平间距
+        hspace=0.4    # 垂直间距
+    )
+    
+    # 保存图像
+    filename = f"visualization/optimization_process_{unique_id}.png"
+    plt.savefig(filename, dpi=300)
+    print(f"Optimization visualization saved to: {filename}")
+    plt.close()
+
 class DataVisualizer:
     """Data Visualization Tools with Improved Layout"""
     
     @staticmethod
-    def visualize_pairwise_data(D_labeled, D_unlabeled, theta_true, stats):
+    def visualize_pairwise_data(D_labeled, D_unlabeled, theta_true, args, stats):
         """Visualize pairwise ranking data with optimized layout"""
         # Extract data
         X_labeled = np.array([z[:-1] for z in D_labeled])
@@ -144,11 +240,11 @@ class DataVisualizer:
         plt.subplots_adjust(wspace=0.3, hspace=0.4)  # Increase spacing between subplots
         plt.tight_layout(rect=[0, 0, 1, 0.96])  # Adjust for suptitle
         
-        plt.savefig("pairwise_data_visualization.png", dpi=300, bbox_inches='tight')
-        plt.show()
+        plt.savefig(f"pairwise_data_visualization_{args.unique_id}.png", dpi=300, bbox_inches='tight')
+        #plt.show()
     
     @staticmethod
-    def visualize_survival_data(D_labeled, D_unlabeled, theta_true, stats):
+    def visualize_survival_data(D_labeled, D_unlabeled, theta_true, stats, unique_id):
         """Visualize survival analysis data with optimized layout"""
         # Extract data
         Y_obs = np.array([z[0] for z in D_labeled])
@@ -240,8 +336,8 @@ class DataVisualizer:
         plt.subplots_adjust(wspace=0.3, hspace=0.4)  # Increase spacing between subplots
         plt.tight_layout(rect=[0, 0, 1, 0.96])  # Adjust for suptitle
         
-        plt.savefig("survival_data_visualization.png", dpi=300, bbox_inches='tight')
-        plt.show()
+        plt.savefig(f"survival_data_visualization_{unique_id}.png", dpi=300, bbox_inches='tight')
+        #plt.show()
 
 class KernelRegression:
     """核回归估计器 (Nadaraya-Watson估计器)"""
@@ -322,7 +418,7 @@ class DataGenerator:
     @staticmethod
     def generate_pairwise_ranking_data(n_labeled, n_unlabeled, p=5, 
                                       cov_structure="equicorrelated", rho=0.5, 
-                                      noise_level=1.0, discrete_levels=5, seed=None):
+                                      noise_level=1.0, discrete_levels=5, seed=None, args=None):
         """
         生成成对排序数据 (论文第4.1节)
         Args:
@@ -385,13 +481,13 @@ class DataGenerator:
             "Y_distribution": np.bincount(Y) / len(Y) if discrete_levels > 1 else None,
             "theta_true": theta_true.copy()
         }
-        DataVisualizer.visualize_pairwise_data(D_labeled, D_unlabeled, theta_true, stats)
+        DataVisualizer.visualize_pairwise_data(D_labeled, D_unlabeled, theta_true, args, stats)
         return D_labeled, D_unlabeled, theta_true, stats
     
     @staticmethod
     def generate_survival_data(n_labeled, n_unlabeled, p=4, 
                                cov_structure="toeplitz", rho=0.5, 
-                               censor_rate=0.25, error_dist="gumbel", seed=None):
+                               censor_rate=0.25, error_dist="gumbel", seed=None, args = None):
         """
         生成生存分析数据 (论文第4.2节)
         Args:
@@ -466,7 +562,7 @@ class DataGenerator:
             "actual_censor_rate": 1 - Delta.mean(),
             "theta_true": theta_true.copy()
         }
-        DataVisualizer.visualize_survival_data(D_labeled, D_unlabeled, theta_true, stats)
+        DataVisualizer.visualize_survival_data(D_labeled, D_unlabeled, theta_true, stats, args.unique_id)
         return D_labeled, D_unlabeled, theta_true, stats
 
 
@@ -486,12 +582,13 @@ class KernelFunctions:
         X_diff = xi - xj
         inner_prod = X_diff @ theta
         exponent = -1*sign_diff * inner_prod
-        
         if exponent < -30:  # exp(-30) ≈ 1e-14，可以忽略
             return np.log(1)
         elif exponent > 30:  
             return exponent
         else:
+            if np.isnan(np.log(1 + np.exp(exponent))):
+                print('in pairwise kernel: ', f'expo: {exponent}, inerprod: {inner_prod}, xdiff:{ X_diff}, theta: {theta}, sign:{sign_diff}')
             return np.log(1 + np.exp(exponent))
     
     @staticmethod
@@ -520,30 +617,64 @@ class KernelFunctions:
 class SemiSupervisedEstimator:
     """半监督U估计器 (对应论文第2.3节)"""
     
-    def __init__(self, r=2, reg_model="random_forest", lambda_reg=0.01):
+    def __init__(self, r=2, reg_model="random_forest", lambda_reg=0.01, 
+                 learning_rate=0.1, max_epochs=1000, patience=50, tol=1e-6):
         """
         初始化估计器
         Args:
             r: U统计量阶数 (r)
             reg_model: 回归模型类型 ("linear", "random_forest", "mlp")
             lambda_reg: L2正则化系数 (λ)
+            learning_rate: 学习率
+            max_epochs: 最大迭代次数
+            patience: 提前停止耐心值
+            tol: 收敛容忍度
         """
         self.r = r
         self.lambda_reg = lambda_reg
         self.reg_model_type = reg_model
         self.current_theta = None
+        self.learning_rate = learning_rate
+        self.max_epochs = max_epochs
+        self.patience = patience
+        self.tol = tol
+        self.optimization_history = {
+            'losses': [],
+            'constraints': [],
+            'lambda_vals': [],
+            'grad_norms': [],
+            'theta_history': []
+        }
     
     def _get_regression_model(self):
         """获取回归模型实例 (对应论文第2.3.2节)"""
         if self.reg_model_type == "linear":
             return LinearRegression()
         elif self.reg_model_type == "random_forest":
-            return RandomForestRegressor(n_estimators=100, random_state=42)
+            return RandomForestRegressor(
+                n_estimators=100,
+                random_state=42,
+                min_samples_leaf=5
+            )
         elif self.reg_model_type == "mlp":
-            return MLPRegressor(hidden_layer_sizes=(50,), max_iter=1000, random_state=42)
+            return MLPRegressor(
+                hidden_layer_sizes=(50,),
+                max_iter=1000,
+                random_state=42,
+                alpha=0.1,  # 更强的L2正则化
+                early_stopping=True,  # 启用早停
+                n_iter_no_change=20,  # 20次迭代无改进则停止
+                learning_rate_init=0.001,  # 更小的学习率
+                learning_rate='adaptive',  # 自适应学习率
+                solver='adam',  # 使用Adam优化器
+                activation='relu',  # 使用ReLU激活函数
+                batch_size='auto',
+                tol=1e-5,
+                verbose=False,
+                max_fun=15000  # 增加最大函数评估次数
+            )
         elif self.reg_model_type == "kernel":
-            # 核回归模型 (Nadaraya-Watson估计器)
-            return KernelRegression(kernel="gaussian")
+            return KernelRegression(kernel="gaussian", bandwidth=0.5)
         else:
             raise ValueError(f"未知回归模型: {self.reg_model_type}")
     
@@ -568,15 +699,10 @@ class SemiSupervisedEstimator:
             for i in range(k):
                 total += kernel_func(theta, z, D_sub[i])
                 count += 1
+            if np.isnan(total):
+                print(f'in ell1: k: {k}, z: {z}')
+                print(f'in ell1: total{total}, count: {count}, D_sub[i] :{D_sub[i]}')
             return total / count if count > 0 else 0
-        
-        # 对于r>2的情况，使用随机抽样避免组合爆炸
-        num_samples = min(100, math.comb(k, r_minus_1))
-        for _ in range(num_samples):
-            indices = np.random.choice(k, r_minus_1, replace=False)
-            z_subset = [D_sub[i] for i in indices]
-            total += kernel_func(theta, z, *z_subset)
-            count += 1
         
         return total / count if count > 0 else 0
     
@@ -715,80 +841,172 @@ class SemiSupervisedEstimator:
         
         return risk
     
-    def fit(self, D_labeled, D_unlabeled, kernel_func, init_theta=None):
+    def fit(self, D_labeled, D_unlabeled, kernel_func, init_theta=None, theta_true=None, unique_id=None):
         """
-        拟合模型 (对应论文算法1)
-        θ̂ = argmin_{θ∈Θ} L_S^{Cross}(θ)
+        拟合模型 (对应论文算法1) - 使用拉格朗日乘数法进行单位模长约束优化
         """
         n_features = len(D_labeled[0]) - 1 if isinstance(D_labeled[0], (list, np.ndarray)) else len(D_labeled[0]) - 2
         
-        # 初始化参数
+        # 初始化参数和拉格朗日乘子
         if init_theta is None:
             init_theta = np.random.randn(n_features)
             init_theta /= np.linalg.norm(init_theta)
-        init_lambda = 0.0  # 初始拉格朗日乘子
         
-        # 定义增广目标函数 (拉格朗日函数)
-        def lagrangian(x):
-            # 拆分变量：前n_features个是θ，最后一个是λ
-            theta = x[:-1]
-            lam = x[-1]
-            constraint = np.linalg.norm(theta) - 1
-            
-            # 拉格朗日函数: L_n + λ*(||θ|| - 1)
-            return self.semi_supervised_risk(theta, D_labeled, D_unlabeled, kernel_func) + lam * constraint
+        theta = init_theta.copy()
+        lambda_val = 0.0  # 初始拉格朗日乘子
         
-        # 定义增广目标函数的梯度
-        def lagrangian_grad(x):
-            theta = x[:-1]
-            lam = x[-1]
-            delta = 1e-5  # 有限差分步长
+        # 清空历史记录
+        self.optimization_history = {
+            'losses': [],
+            'constraints': [],
+            'lambda_vals': [],
+            'grad_norms': [],
+            'theta_history': [theta.copy()]
+        }
+        
+        # 定义目标函数
+        def objective(theta):
+            return self.semi_supervised_risk(theta, D_labeled, D_unlabeled, kernel_func)
+        
+        # 有限差分法计算梯度
+        def compute_gradient(theta, delta=1e-6):
+            grad = np.zeros_like(theta)
+            base_value = objective(theta)
             
-            # 计算梯度
-            grad = np.zeros_like(x)
-            
-            # 对θ的梯度
             for i in range(len(theta)):
-                x_plus = x.copy()
-                x_plus[i] += delta
-                
-                x_minus = x.copy()
-                x_minus[i] -= delta
-                
-                grad[i] = (lagrangian(x_plus) - lagrangian(x_minus)) / (2 * delta)
-            
-            # 对λ的梯度 (约束项)
-            x_plus = x.copy()
-            x_plus[-1] += delta
-            x_minus = x.copy()
-            x_minus[-1] -= delta
-            grad[-1] = (lagrangian(x_plus) - lagrangian(x_minus)) / (2 * delta)
+                theta_plus = theta.copy()
+                theta_plus[i] += delta
+                value_plus = objective(theta_plus)
+                grad[i] = (value_plus - base_value) / delta
             
             return grad
         
-        # 初始点 (θ + λ)
-        init_x = np.concatenate([init_theta, [init_lambda]])
+        # 梯度下降优化
+        best_loss = float('inf')
+        epochs_no_improve = 0
         
-        # 优化增广目标函数
-        result = minimize(
-            lagrangian,
-            init_x,
-            jac=lagrangian_grad,
-            method='L-BFGS-B',
-            options={'maxiter': 1000, 'ftol': 1e-6, 'disp': False}
+        for epoch in range(self.max_epochs):
+            # 计算目标函数值和梯度
+            loss = objective(theta)
+            grad_f = compute_gradient(theta)
+            
+            # 计算约束相关项
+            constraint = np.dot(theta, theta) - 1.0  # ||θ||^2 - 1
+            grad_constraint = 2 * theta  # 约束的梯度
+            
+            # 拉格朗日函数的梯度
+            grad_theta = grad_f + lambda_val * grad_constraint
+            grad_lambda = constraint
+            
+            # 记录当前状态
+            self.optimization_history['losses'].append(loss)
+            self.optimization_history['constraints'].append(np.abs(constraint))
+            self.optimization_history['lambda_vals'].append(lambda_val)
+            self.optimization_history['grad_norms'].append(np.linalg.norm(grad_theta))
+            
+            # 检查收敛
+            if loss < best_loss - self.tol:
+                best_loss = loss
+                epochs_no_improve = 0
+            else:
+                epochs_no_improve += 1
+                if epochs_no_improve >= self.patience:
+                    print(f"Early stopping at epoch {epoch}")
+                    break
+            
+            # 更新参数和拉格朗日乘子
+            theta = theta - self.learning_rate * grad_theta
+            print(epoch, theta, grad_theta)
+            lambda_val = lambda_val + self.learning_rate * grad_lambda
+            
+            # 投影到单位球面（确保约束满足）
+            theta_norm = np.linalg.norm(theta)
+            if theta_norm > 1e-8:  # 避免除以零
+                theta /= theta_norm
+            
+            self.optimization_history['theta_history'].append(theta.copy())
+            
+            # 每10个epoch打印一次信息
+            if epoch % 100 == 0:
+                print(f"Epoch {epoch}: loss={loss:.6f}, constraint={constraint:.6f}, "
+                      f"lambda={lambda_val:.6f}, grad_norm={np.linalg.norm(grad_theta):.6f}")
+        
+        self.theta_hat = theta
+        
+        # 可视化优化过程
+        optimization_history = {
+            'losses': self.optimization_history['losses'],
+            'lambda_vals': self.optimization_history['lambda_vals'],
+            'theta_history': self.optimization_history['theta_history']
+        }
+        
+        # 调用统一的优化可视化函数
+        visualize_optimization_process(
+            optimization_history, 
+            f"semi_supervised_{unique_id}", 
+            theta_true 
         )
-        
-        # 提取结果
-        theta_hat = result.x[:-1]
-        lambda_hat = result.x[-1]
-        
-        # 标准化参数 (确保精确满足约束)
-        theta_hat /= np.linalg.norm(theta_hat)
-        
-        print(f"优化结果: λ = {lambda_hat:.6f}, ‖θ‖ = {np.linalg.norm(theta_hat):.6f}")
-        self.theta_hat = theta_hat
         return self
 
+    def visualize_optimization(self, unique_id):
+        """可视化半监督优化过程"""
+        # 确保visualization目录存在
+        os.makedirs("visualization", exist_ok=True)
+        
+        # 获取历史数据
+        losses = self.optimization_history['losses']
+        constraints = self.optimization_history['constraints']
+        lambda_vals = self.optimization_history['lambda_vals']
+        grad_norms = self.optimization_history['grad_norms']
+        theta_history = np.array(self.optimization_history['theta_history'])
+        
+        # 创建图表
+        plt.figure(figsize=(18, 12))
+        plt.suptitle(f"Semi-Supervised Optimization Process (ID: {unique_id})", fontsize=16)
+        
+        # 1. 损失函数变化
+        plt.subplot(2, 2, 1)
+        plt.plot(losses, 'b-', linewidth=2)
+        plt.xlabel('Epoch')
+        plt.ylabel('Loss')
+        plt.title('Semi-Supervised Risk')
+        plt.grid(True)
+        
+        # 2. 约束违反程度
+        plt.subplot(2, 2, 2)
+        plt.plot(constraints, 'r-', linewidth=2)
+        plt.xlabel('Epoch')
+        plt.ylabel('|Constraint|')
+        plt.title('Constraint Violation')
+        plt.yscale('log')
+        plt.grid(True)
+        
+        # 3. 拉格朗日乘子变化
+        plt.subplot(2, 2, 3)
+        plt.plot(lambda_vals, 'g-', linewidth=2)
+        plt.xlabel('Epoch')
+        plt.ylabel('Lambda')
+        plt.title('Lagrange Multiplier Evolution')
+        plt.grid(True)
+        
+        # 4. 参数分量变化
+        plt.subplot(2, 2, 4)
+        for i in range(theta_history.shape[1]):
+            plt.plot(theta_history[:, i], label=f'$\\theta_{i}$')
+        plt.xlabel('Epoch')
+        plt.ylabel('Parameter Value')
+        plt.title('Parameter Values')
+        plt.legend()
+        plt.grid(True)
+        
+        # 调整布局防止重叠
+        plt.subplots_adjust(left=0.1, right=0.95, bottom=0.1, top=0.9, wspace=0.3, hspace=0.4)
+        
+        # 保存图像
+        filename = f"visualization/semi_supervised_optimization_{unique_id}.png"
+        plt.savefig(filename, dpi=300)
+        print(f"Optimization visualization saved to: {filename}")
+        plt.close()
 
 class ExperimentRunner:
     """实验运行器 (对应论文第4节)"""
@@ -819,7 +1037,7 @@ class ExperimentRunner:
 
     @staticmethod
     def run_pairwise_ranking_experiment(n_labeled=100, n_unlabeled=500, p=5, 
-                                       reg_models=["linear", "kernel", "mlp"],
+                                       reg_models=["linear", "kernel", "mlp"],args = None,
                                        trials=10, discrete_levels=5, **data_kwargs):
         """
         运行成对排序实验 (论文第4.1节)
@@ -843,10 +1061,10 @@ class ExperimentRunner:
         }
         ExperimentRunner.print_experiment_header("pairwise_rank", params)
         
-        for trial in tqdm(range(trials), desc="progress"):
+        for trial in tqdm(range(4,trials+4), desc="progress"):
             # 生成数据
             D_labeled, D_unlabeled, theta_true, stats = DataGenerator.generate_pairwise_ranking_data(
-                n_labeled, n_unlabeled, p=p, discrete_levels=discrete_levels, seed=42+trial, **data_kwargs
+                n_labeled, n_unlabeled, p=p, discrete_levels=discrete_levels, seed=42+trial, args=args, **data_kwargs
             )
             
 
@@ -855,11 +1073,9 @@ class ExperimentRunner:
             # 监督基准
             print('run baseline')
             start_time = time()
-            sup_theta = ExperimentRunner.supervised_baseline(D_labeled, KernelFunctions.pairwise_ranking_kernel)
+            sup_theta = ExperimentRunner.supervised_baseline(D_labeled, KernelFunctions.pairwise_ranking_kernel, args=args, theta_true=theta_true)
             sup_time = time() - start_time
             sup_error = np.linalg.norm(sup_theta - theta_true)
-            norm_val = np.linalg.norm(sup_theta)
-            print(f"监督基准参数模长: {norm_val:.6f} (期望值: 1.000000)")
             print('end baseline', sup_time)
             results.append([trial, "Supervised", "None", sup_error, sup_time, sup_theta.copy(), theta_true.copy()])
             #print(results)
@@ -872,12 +1088,21 @@ class ExperimentRunner:
             for model_type in reg_models:
                 print(model_type)
                 start_time = time()
-                estimator = SemiSupervisedEstimator(reg_model=model_type)
-                estimator.fit(D_labeled, D_unlabeled, KernelFunctions.pairwise_ranking_kernel)
+                estimator = SemiSupervisedEstimator(
+                    reg_model=model_type,
+                    learning_rate=0.05,  # 调小学习率
+                    max_epochs=1000        # 减少迭代次数（因为计算成本高）
+                )
+                estimator.fit(
+                    D_labeled, 
+                    D_unlabeled, 
+                    KernelFunctions.pairwise_ranking_kernel,
+                    unique_id=model_type+args.unique_id,
+                    theta_true=theta_true
+                )
                 semi_time = time() - start_time
                 semi_error = np.linalg.norm(estimator.theta_hat - theta_true)
-                norm_val = np.linalg.norm(estimator.theta_hat)
-                print(f"半监督基准参数模长: {norm_val:.6f} (期望值: 1.000000)")
+                
                 results.append([trial, "Semi-Supervised", model_type, semi_error, semi_time, 
                                estimator.theta_hat.copy(), theta_true.copy()])
                 #print(results)
@@ -893,7 +1118,7 @@ class ExperimentRunner:
     @staticmethod
     def run_survival_analysis_experiment(n_labeled=100, n_unlabeled=500, p=4, 
                                          reg_models=["linear", "kernel",  "mlp"],
-                                         trials=10, **data_kwargs):
+                                         trials=10, args=None, **data_kwargs):
         """
         运行生存分析实验 (论文第4.2节)
         Returns:
@@ -921,8 +1146,7 @@ class ExperimentRunner:
         for trial in tqdm(range(trials), desc="progress"):
             # 生成数据
             D_labeled, D_unlabeled, theta_true, stats = DataGenerator.generate_survival_data(
-                n_labeled, n_unlabeled, p=p, seed=42+trial, **data_kwargs
-            )
+                n_labeled, n_unlabeled, p=p, seed=42+trial, args=args, **data_kwargs)
             
             if trial == 0:
                 ExperimentRunner.print_dataset_stats(stats)
@@ -935,7 +1159,7 @@ class ExperimentRunner:
             
             # 监督基准
             start_time = time()
-            sup_theta = ExperimentRunner.supervised_baseline(D_labeled, gehan_kernel)
+            sup_theta = ExperimentRunner.supervised_baseline(D_labeled, gehan_kernel, args=args)
             sup_time = time() - start_time
             sup_error = np.linalg.norm(sup_theta - theta_true)
             
@@ -949,7 +1173,7 @@ class ExperimentRunner:
             for model_type in reg_models:
                 start_time = time()
                 estimator = SemiSupervisedEstimator(reg_model=model_type)
-                estimator.fit(D_labeled, D_unlabeled, gehan_kernel)
+                estimator.fit(D_labeled, D_unlabeled, gehan_kernel, theta_true=theta_true)
                 semi_time = time() - start_time
                 semi_error = np.linalg.norm(estimator.theta_hat - theta_true)
                 
@@ -965,90 +1189,93 @@ class ExperimentRunner:
         return df, theta_data
     
     @staticmethod
-    def supervised_baseline(D_labeled, kernel_func):
-        """
-        使用拉格朗日乘子法的监督基准实现
-        (显式处理单位模长约束)
-        """
+    def supervised_baseline(D_labeled, kernel_func, args, theta_true=None):
+        """监督基准方法 - 使用拉格朗日乘数法进行单位模长约束优化"""
         n_features = len(D_labeled[0]) - 1 if isinstance(D_labeled[0], (list, np.ndarray)) else len(D_labeled[0]) - 2
         
         # 初始化参数和拉格朗日乘子
-        init_theta = np.random.randn(n_features)
-        init_theta /= np.linalg.norm(init_theta)  # 初始化为单位向量
-        init_lambda = 0.0  # 初始拉格朗日乘子
+        theta = np.random.randn(n_features)
+        theta /= np.linalg.norm(theta)  # 初始化为单位向量
+        lambda_val = 0.0  # 初始拉格朗日乘子
         
-        # 定义增广目标函数 (拉格朗日函数)
-        def lagrangian(x):
-            # 拆分变量：前n_features个是θ，最后一个是λ
-            theta = x[:-1]
-            lam = x[-1]
-            
-            # 计算原始目标函数
-            n = len(D_labeled)
-            total_loss = 0
-            count = 0
-            for i in range(n):
-                for j in range(i+1, n):
-                    total_loss += kernel_func(theta, D_labeled[i], D_labeled[j])
-                    count += 1
-            L_n = total_loss / count if count > 0 else 0
-            
-            # 计算约束项
-            constraint = np.linalg.norm(theta) - 1
-            
-            # 拉格朗日函数: L_n + λ*(||θ|| - 1)
-            return L_n + lam * constraint
+        # 梯度下降参数
+        learning_rate = 0.05
+        max_epochs = 1000
+        patience = 50
+        tol = 1e-6
         
-        # 定义增广目标函数的梯度
-        def lagrangian_grad(x):
-            theta = x[:-1]
-            lam = x[-1]
-            delta = 1e-5  # 有限差分步长
-            
-            # 计算梯度
-            grad = np.zeros_like(x)
-            
-            # 对θ的梯度
-            for i in range(len(theta)):
-                x_plus = x.copy()
-                x_plus[i] += delta
-                
-                x_minus = x.copy()
-                x_minus[i] -= delta
-                
-                grad[i] = (lagrangian(x_plus) - lagrangian(x_minus)) / (2 * delta)
-            
-            # 对λ的梯度 (约束项)
-            x_plus = x.copy()
-            x_plus[-1] += delta
-            x_minus = x.copy()
-            x_minus[-1] -= delta
-            grad[-1] = (lagrangian(x_plus) - lagrangian(x_minus)) / (2 * delta)
-            
-            return grad
+        # 记录优化过程
+        losses = []
+        constraints = []  # 约束违反程度 (||θ||^2 - 1)
+        lambda_vals = []  # 拉格朗日乘子变化
+        grad_norms = []   # 梯度范数
+        theta_history = []  # θ历史记录
+        theta_history.append(theta.copy())
         
-        # 初始点 (θ + λ)
-        init_x = np.concatenate([init_theta, [init_lambda]])
+        # 梯度下降优化
+        best_loss = float('inf')
+        epochs_no_improve = 0
         
-        # 优化增广目标函数
-        result = minimize(
-            lagrangian,
-            init_x,
-            jac=lagrangian_grad,
-            method='L-BFGS-B',
-            options={'maxiter': 1000, 'ftol': 1e-6, 'disp': False}
+        for epoch in range(max_epochs):
+            # 计算目标函数值和梯度
+            total_loss, grad_f = ExperimentRunner.compute_objective_and_gradient(theta, D_labeled, kernel_func)
+            
+            # 计算约束相关项
+            constraint = np.dot(theta, theta) - 1.0  # ||θ||^2 - 1
+            grad_constraint = 2 * theta  # 约束的梯度
+            
+            # 拉格朗日函数的梯度
+            grad_theta = grad_f + lambda_val * grad_constraint
+            grad_lambda = constraint
+            
+            # 记录当前状态
+            losses.append(total_loss)
+            constraints.append(np.abs(constraint))
+            lambda_vals.append(lambda_val)
+            grad_norm = np.linalg.norm(grad_theta)
+            grad_norms.append(grad_norm)
+            
+            # 检查收敛
+            if total_loss < best_loss - tol:
+                best_loss = total_loss
+                epochs_no_improve = 0
+            else:
+                epochs_no_improve += 1
+                if epochs_no_improve >= patience:
+                    print(f"Early stopping at epoch {epoch}")
+                    break
+            
+            # 更新参数和拉格朗日乘子
+            theta = theta - learning_rate * grad_theta
+            lambda_val = lambda_val + learning_rate * grad_lambda
+            
+            # 投影到单位球面（确保约束满足）
+            theta_norm = np.linalg.norm(theta)
+            if theta_norm > 1e-8:  # 避免除以零
+                theta /= theta_norm
+            
+            theta_history.append(theta.copy())
+            
+            # 学习率衰减
+            if epoch % 100 == 0 and epoch > 0:
+                learning_rate *= 0.8
+                print(f"Epoch {epoch}: loss={total_loss:.6f}, "
+                      f"constraint={constraint:.6f}, lambda={lambda_val:.6f}, "
+                      f"grad_norm={grad_norm:.6f}, lr={learning_rate:.6f}")
+        
+        optimization_history = {
+            'losses': losses,
+            'lambda_vals': lambda_vals,
+            'theta_history': theta_history
+        }
+        
+        # 可视化优化过程
+        visualize_optimization_process(
+            optimization_history, 
+            f"supervised_{args.unique_id}", 
+            theta_true
         )
-        
-        # 提取结果
-        theta_hat = result.x[:-1]
-        lambda_hat = result.x[-1]
-        
-        # 标准化参数 (确保精确满足约束)
-        theta_hat /= np.linalg.norm(theta_hat)
-        
-        print(f"优化结果: λ = {lambda_hat:.6f}, ‖θ‖ = {np.linalg.norm(theta_hat):.6f}")
-        return theta_hat
-    
+        return theta
     @staticmethod
     def pairwise_kernel_with_grad(theta, zi, zj, kernel_func):
         """计算核函数值和梯度"""
@@ -1065,31 +1292,72 @@ class ExperimentRunner:
             grad[i] = (value_plus - base_value) / delta
         
         return base_value, grad
+    @staticmethod
+    def compute_objective_and_gradient(theta, D_labeled, kernel_func):
+        """计算目标函数值和梯度"""
+        n = len(D_labeled)
+        total_loss = 0
+        total_grad = np.zeros_like(theta)
+        count = 0
+        
+        # 计算所有成对组合的损失和梯度
+        for i in range(n):
+            for j in range(i+1, n):
+                # 计算损失和梯度
+                loss_ij, grad_ij = ExperimentRunner.pairwise_kernel_with_grad(
+                    theta, D_labeled[i], D_labeled[j], kernel_func
+                )
+                total_loss += loss_ij
+                total_grad += grad_ij
+                count += 1
+        
+        avg_loss = total_loss / count if count > 0 else 0
+        avg_grad = total_grad / count if count > 0 else np.zeros_like(theta)
+        
+        return avg_loss, avg_grad
     
     @staticmethod
-    def visualize_optimization(losses, grad_norms, theta_history, theta_true=None):
-        """可视化梯度下降优化过程"""
-        plt.figure(figsize=(15, 10))
+    def visualize_constrained_optimization(losses, constraints, lambda_vals, grad_norms, 
+                                         theta_history, args, theta_true=None):
+        """可视化带约束的优化过程"""
+        plt.figure(figsize=(20, 15))
         
         # 损失函数变化
-        plt.subplot(2, 2, 1)
+        plt.subplot(3, 2, 1)
         plt.plot(losses, 'b-', linewidth=2)
         plt.xlabel('Epoch')
         plt.ylabel('Loss')
         plt.title('Loss Function During Optimization')
         plt.grid(True)
         
+        # 约束违反程度
+        plt.subplot(3, 2, 2)
+        plt.plot(constraints, 'r-', linewidth=2)
+        plt.xlabel('Epoch')
+        plt.ylabel('|Constraint|')
+        plt.title('Constraint Violation')
+        plt.yscale('log')
+        plt.grid(True)
+        
+        # 拉格朗日乘子变化
+        plt.subplot(3, 2, 3)
+        plt.plot(lambda_vals, 'g-', linewidth=2)
+        plt.xlabel('Epoch')
+        plt.ylabel('Lambda')
+        plt.title('Lagrange Multiplier Evolution')
+        plt.grid(True)
+        
         # 梯度范数变化
-        plt.subplot(2, 2, 2)
-        plt.plot(grad_norms, 'r-', linewidth=2)
+        plt.subplot(3, 2, 4)
+        plt.plot(grad_norms, 'm-', linewidth=2)
         plt.xlabel('Epoch')
         plt.ylabel('Gradient Norm')
-        plt.title('Gradient Norm During Optimization')
+        plt.title('Gradient Norm')
         plt.yscale('log')
         plt.grid(True)
         
         # 参数分量变化
-        plt.subplot(2, 2, 3)
+        plt.subplot(3, 2, 5)
         theta_history = np.array(theta_history)
         for i in range(theta_history.shape[1]):
             plt.plot(theta_history[:, i], label=f'$\\theta_{i}$')
@@ -1098,30 +1366,43 @@ class ExperimentRunner:
                             label=f'True $\\theta_{i}$')
         plt.xlabel('Epoch')
         plt.ylabel('Parameter Value')
-        plt.title('Parameter Values During Optimization')
+        plt.title('Parameter Values')
         plt.legend()
         plt.grid(True)
         
         # 参数空间轨迹
         if theta_history.shape[1] >= 2:
-            plt.subplot(2, 2, 4)
+            plt.subplot(3, 2, 6)
+            # 绘制单位圆
+            angles = np.linspace(0, 2*np.pi, 100)
+            plt.plot(np.cos(angles), np.sin(angles), 'k--', alpha=0.3)
+            
+            # 绘制轨迹
             plt.plot(theta_history[:, 0], theta_history[:, 1], 'b-')
             plt.scatter(theta_history[0, 0], theta_history[0, 1], c='green', 
-                       s=100, marker='o', label='Start')
+                      s=100, marker='o', label='Start')
             plt.scatter(theta_history[-1, 0], theta_history[-1, 1], c='red', 
-                       s=100, marker='x', label='End')
+                      s=100, marker='x', label='End')
             if theta_true is not None and len(theta_true) >= 2:
                 plt.scatter(theta_true[0], theta_true[1], c='black', 
-                           s=150, marker='*', label='Optimum')
+                          s=150, marker='*', label='Optimum')
             plt.xlabel('$\\theta_0$')
             plt.ylabel('$\\theta_1$')
             plt.title('Parameter Space Trajectory')
+            plt.axis('equal')
             plt.legend()
             plt.grid(True)
         
-        plt.tight_layout()
-        plt.savefig('supervised_baseline_optimization.png', dpi=300)
-        plt.show()
+        plt.subplots_adjust(
+            left=0.1, 
+            right=0.95, 
+            bottom=0.1, 
+            top=0.9, 
+            wspace=0.3,  # 水平间距
+            hspace=0.4    # 垂直间距
+        )
+        plt.savefig(f'constrained_optimization_{args.unique_id}.png', dpi=300)
+        #plt.show()
     
     @staticmethod
     def estimate_covariance(p, cov_structure="toeplitz", rho=0.5):
@@ -1134,11 +1415,11 @@ class ExperimentRunner:
             return np.eye(p)
     
     @staticmethod
-    def save_theta_data(theta_data, experiment_name):
+    def save_theta_data(theta_data, experiment_name, args):
         """保存theta数据到文件"""
         import time
         timestamp = time.strftime("%Y%m%d-%H%M%S")
-        filename = f"{experiment_name.replace(' ', '_')}_theta_data_{timestamp}.pkl"
+        filename = f"{experiment_name.replace(' ', '_')}_theta_data_{timestamp}_{args.unique_id}.pkl"
         
         with open(filename, 'wb') as f:
             pickle.dump(theta_data, f)
@@ -1151,7 +1432,7 @@ class ResultAnalyzer:
     """实验结果分析器"""
     
     @staticmethod
-    def analyze_results(df, experiment_name):
+    def analyze_results(df, experiment_name, args):
         """分析并可视化结果，并生成统计显著性分析表格"""
         print(f"\n{experiment_name} result summary:")
         summary = df.groupby(['Method', 'RegModel'])['Error'].agg(['mean', 'std', 'count'])
@@ -1173,18 +1454,18 @@ class ResultAnalyzer:
         plt.grid(True, linestyle='--', alpha=0.7)
         
         plt.tight_layout()
-        filename = f"{experiment_name.replace(' ', '_')}_results.png"
+        filename = f"{experiment_name.replace(' ', '_')}_results_{args.unique_id}.png"
         plt.savefig(filename, dpi=300)
         print(f"Result plot saved to: {filename}")
-        plt.show()
+        #plt.show()
         
         # 统计显著性检验和表格生成
-        stats_df = ResultAnalyzer.significance_test(df, experiment_name)
+        stats_df = ResultAnalyzer.significance_test(df, experiment_name, args=args)
         
         return summary, stats_df
 
     @staticmethod
-    def significance_test(df, experiment_name):
+    def significance_test(df, experiment_name, args):
         """统计显著性检验并生成结果表格"""
         # 提取监督方法误差
         sup_errors = df[df['Method'] == 'Supervised']['Error'].values
@@ -1211,12 +1492,12 @@ class ResultAnalyzer:
         stats_df = pd.DataFrame(results)
         
         # 保存为CSV
-        csv_file = f"{experiment_name.replace(' ', '_')}_significance_results.csv"
+        csv_file = f"{experiment_name.replace(' ', '_')}_significance_results_{args.unique_id}.csv"
         stats_df.to_csv(csv_file, index=False)
         print(f"Significance results saved to: {csv_file}")
         
         # 保存为LaTeX表格
-        latex_file = f"{experiment_name.replace(' ', '_')}_significance_results.tex"
+        latex_file = f"{experiment_name.replace(' ', '_')}_significance_results_{args.unique_id}.tex"
         stats_df.to_latex(latex_file, index=False, float_format="%.4f")
         print(f"LaTeX table saved to: {latex_file}")
         
@@ -1227,7 +1508,7 @@ class ResultAnalyzer:
         return stats_df
     
     @staticmethod
-    def visualize_theta_comparison(theta_data, experiment_name, trial=0):
+    def visualize_theta_comparison(theta_data, experiment_name, trial=0, args=None):
         """可视化θ估计值与真实值比较，支持多个半监督模型"""
         # 筛选数据
         trial_data = [d for d in theta_data if d['trial'] == trial]
@@ -1283,13 +1564,13 @@ class ResultAnalyzer:
         plt.legend()
         plt.grid(True, linestyle='--', alpha=0.5)
         
-        filename = f"{experiment_name.replace(' ', '_')}_theta_comparison_trial_{trial}.png"
+        filename = f"{experiment_name.replace(' ', '_')}_theta_comparison_trial_{trial}_{args.unique_id}.png"
         plt.savefig(filename, dpi=300)
         print(f"Theta comparison diagram saved to: {filename}")
-        plt.show()
+        #plt.show()
     
     @staticmethod
-    def sample_size_sensitivity(experiment_func, exp_name, n_values, m_ratio=5, trials=10, **kwargs):
+    def sample_size_sensitivity(experiment_func, exp_name, n_values, m_ratio=5, trials=10,args=None,  **kwargs):
         """样本量敏感性分析"""
         results = []
         
@@ -1327,24 +1608,24 @@ class ResultAnalyzer:
         plt.legend()
         plt.grid(True, linestyle='--', alpha=0.7)
         
-        filename = f"{exp_name.replace(' ', '_')}_sensitivity.png"
+        filename = f"{exp_name.replace(' ', '_')}_sensitivity_{args.unique_id}.png"
         plt.savefig(filename, dpi=300)
         print(f"sensitivity diagram saved to: {filename}")
-        plt.show()
+        #plt.show()
         
         return sens_df
 
 
 def main():
     parser = argparse.ArgumentParser(description='semi-super-U')
-    parser.add_argument('--experiment', type=str, default='both', 
+    parser.add_argument('--experiment', type=str, default='pairwise', 
                         choices=['pairwise', 'survival', 'both'], 
                         help='simulation task')
     parser.add_argument('--n_labeled', type=int, default=100, 
                         help='n')
     parser.add_argument('--n_unlabeled', type=int, default=500, 
                         help='m')
-    parser.add_argument('--trials', type=int, default=50, 
+    parser.add_argument('--trials', type=int, default=20, 
                         help='number of trails')
     parser.add_argument('--p', type=int, default=5, 
                         help='dimension')
@@ -1353,6 +1634,8 @@ def main():
     parser.add_argument('--censor_rate', type=float, default=0.25, 
                         help='')
     parser.add_argument('--output_dir', type=str, default='results', 
+                        help='')
+    parser.add_argument('--unique_id', type=str, default='n100m500p5t5pair', 
                         help='')
     args = parser.parse_args()
     
@@ -1368,17 +1651,18 @@ def main():
             p=args.p,
             trials=args.trials,
             discrete_levels=args.discrete_levels,
-            reg_models=["linear", "kernel",  "mlp"]
+            reg_models=["linear", "kernel",  "mlp"],
+            args = args
         )
         
         # 保存θ数据
-        theta_file = ExperimentRunner.save_theta_data(pairwise_theta_data, "pairwise_rank")
+        theta_file = ExperimentRunner.save_theta_data(pairwise_theta_data, "pairwise_rank", args=args)
         
         # 分析结果
-        pairwise_summary, pairwise_stats = ResultAnalyzer.analyze_results(pairwise_df, "pairwise_rank_exam")
+        pairwise_summary, pairwise_stats = ResultAnalyzer.analyze_results(pairwise_df, "pairwise_rank_exam", args=args)
         
         # 可视化参数比较
-        ResultAnalyzer.visualize_theta_comparison(pairwise_theta_data, "pairwise_rank", trial=0)
+        ResultAnalyzer.visualize_theta_comparison(pairwise_theta_data, "pairwise_rank", trial=0, args=args)
         
         # 样本量敏感性分析
         n_values = [50, 200, 500]
@@ -1386,7 +1670,8 @@ def main():
             ExperimentRunner.run_pairwise_ranking_experiment,
             "pairwise_rank",
             n_values,
-            trials=20
+            trials=20,
+            args=args
         )
     
     # 运行生存分析实验
@@ -1396,19 +1681,20 @@ def main():
             n_unlabeled=args.n_unlabeled,
             p=args.p,
             trials=args.trials,
+            args = args,
             reg_models=["linear", "kernel", "mlp"],
             censor_rate=args.censor_rate,
             error_dist="gumbel"
         )
         
         # 保存θ数据
-        theta_file = ExperimentRunner.save_theta_data(survival_theta_data, "survival_analyze")
+        theta_file = ExperimentRunner.save_theta_data(survival_theta_data, "survival_analyze", args=args)
         
         # 分析结果
-        survival_summary, survival_stats = ResultAnalyzer.analyze_results(survival_df, "survival_analyze_exam")
+        survival_summary, survival_stats = ResultAnalyzer.analyze_results(survival_df, "survival_analyze_exam",args=args)
         
         # 可视化参数比较
-        ResultAnalyzer.visualize_theta_comparison(survival_theta_data, "survival_analyze", trial=0)
+        ResultAnalyzer.visualize_theta_comparison(survival_theta_data, "survival_analyze", trial=0, args=args)
         
         # 样本量敏感性分析
         n_values = [50, 100, 200, 500]
@@ -1416,7 +1702,8 @@ def main():
             ExperimentRunner.run_survival_analysis_experiment,
             "survival_analyze",
             n_values,
-            trials=5
+            trials=5,
+            args = args
         )
     
     print("\n All experiment finished!")
